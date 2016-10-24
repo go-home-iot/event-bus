@@ -199,10 +199,10 @@ func TestStopCallsAllProducersAndConsumers(t *testing.T) {
 	b.AddConsumer(c1)
 	b.AddConsumer(c2)
 
-	b.Stop()
-
 	e := &MockEvent{}
 	p1.Produce(e)
+
+	b.Stop()
 
 	// After stopping, should be nothing on the channel
 	// and it should be closed

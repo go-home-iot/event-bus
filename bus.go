@@ -9,7 +9,6 @@ type Bus struct {
 	consumers map[Consumer]chan Event
 	producers []Producer
 	events    chan Event
-	stopped   bool
 
 	// Capacity is the number of events that can be in the bus at one time before incoming
 	// events will be ignored
@@ -38,7 +37,10 @@ func (b *Bus) init() {
 	go func() {
 		for {
 			// Wait for events to process
-			e := <-b.events
+			e, more := <-b.events
+			if !more {
+				return
+			}
 
 			// Each consumer has it's own buffered channel, that way we can send an event
 			// to the consumer and not block the bus, so we can send to other consumers if
@@ -57,7 +59,6 @@ func (b *Bus) init() {
 // Stop removes all of the consumers and producers and stops processing events. After calling
 // this method the Bus is no longer usable and you should create a new one of you need another bus
 func (b *Bus) Stop() {
-	b.stopped = true
 	for len(b.consumers) > 0 {
 		// Keyed with the consumer, so get first key each time then break
 		for c := range b.consumers {
@@ -68,6 +69,7 @@ func (b *Bus) Stop() {
 	for len(b.producers) > 0 {
 		b.RemoveProducer(b.producers[0])
 	}
+	close(b.events)
 }
 
 // AddConsumer adds a consumer to the bus, once added the consumer will start to
