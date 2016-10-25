@@ -88,6 +88,12 @@ func (b *Bus) AddConsumer(c Consumer) {
 		return
 	}
 
+	_, ok := b.consumers[c]
+	if ok {
+		// Already consuming, ignore
+		return
+	}
+
 	b.mutex.Lock()
 	b.consumers[c] = make(chan Event, b.ConsumerCapacity)
 	b.mutex.Unlock()
@@ -113,6 +119,13 @@ func (b *Bus) RemoveConsumer(c Consumer) {
 // AddProducer adds a producer to the bus and registers it
 func (b *Bus) AddProducer(p Producer) {
 	b.mutex.Lock()
+
+	for _, prod := range b.producers {
+		// Already producing, ignore
+		if prod == p {
+			return
+		}
+	}
 	b.producers = append(b.producers, p)
 	b.mutex.Unlock()
 
