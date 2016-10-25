@@ -11,7 +11,7 @@ go get github.com/go-home-iot/event-bus
 
 ##Package
 ```go
-import "github.com/go-home-iot/evtbus"
+import "github.com/go-home-iot/event-bus"
 ```
 
 ##Usage

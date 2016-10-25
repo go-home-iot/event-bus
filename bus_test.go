@@ -9,6 +9,11 @@ import (
 )
 
 type MockEvent struct {
+	Desc string
+}
+
+func (e *MockEvent) String() string {
+	return e.Desc
 }
 
 type MockConsumer struct {
@@ -77,8 +82,8 @@ func TestFullBusReturnsError(t *testing.T) {
 	p := &MockProducer{}
 	b.AddProducer(p)
 
-	e1 := &MockEvent{}
-	e2 := &MockEvent{}
+	e1 := &MockEvent{Desc: "e1"}
+	e2 := &MockEvent{Desc: "e2"}
 
 	// Simulate the producer, producing events, the first one should
 	// be enqueued, the second should fail, since we set the bus capacity to 1
@@ -110,8 +115,8 @@ func TestMultipleProducers(t *testing.T) {
 	c := &MockConsumer{}
 	b.AddConsumer(c)
 
-	e1 := &MockEvent{}
-	e2 := &MockEvent{}
+	e1 := &MockEvent{Desc: "e1"}
+	e2 := &MockEvent{Desc: "e2"}
 
 	p1.Produce(e1)
 	p2.Produce(e2)
@@ -134,7 +139,7 @@ func TestConsumersReceiveEvent(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	e := &MockEvent{}
+	e := &MockEvent{Desc: "e"}
 	var evt1 evtbus.Event
 	var evt2 evtbus.Event
 	go func() {
@@ -170,7 +175,7 @@ func TestBlockedConsumerDoesntBlockOtherConsumers(t *testing.T) {
 	b.AddConsumer(c1)
 	b.AddConsumer(c2)
 
-	e1 := &MockEvent{}
+	e1 := &MockEvent{Desc: "e1"}
 	p.Produce(e1)
 
 	// Take event of c2, but leave it on c1
@@ -178,7 +183,7 @@ func TestBlockedConsumerDoesntBlockOtherConsumers(t *testing.T) {
 
 	// Raise another event, c1 is full, but should not block
 	// c2 should get event
-	e2 := &MockEvent{}
+	e2 := &MockEvent{Desc: "e2"}
 	p.Produce(e2)
 
 	evt := <-c2.Channel
@@ -199,7 +204,7 @@ func TestStopCallsAllProducersAndConsumers(t *testing.T) {
 	b.AddConsumer(c1)
 	b.AddConsumer(c2)
 
-	e := &MockEvent{}
+	e := &MockEvent{Desc: "e"}
 	p1.Produce(e)
 
 	b.Stop()

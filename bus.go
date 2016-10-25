@@ -1,6 +1,9 @@
 package evtbus
 
-import "errors"
+import (
+	"errors"
+	"sync"
+)
 
 // Bus is a type that facilitates sending events from multiple producers to multiple consumers. It
 // is non blocking, so fast producers won't break the bus and slow consumers won't block other consumers
@@ -9,6 +12,8 @@ type Bus struct {
 	consumers map[Consumer]chan Event
 	producers []Producer
 	events    chan Event
+	stopped   bool
+	mutex     sync.RWMutex
 
 	// Capacity is the number of events that can be in the bus at one time before incoming
 	// events will be ignored
@@ -38,13 +43,14 @@ func (b *Bus) init() {
 		for {
 			// Wait for events to process
 			e, more := <-b.events
-			if !more {
+			if b.stopped || !more {
 				return
 			}
 
 			// Each consumer has it's own buffered channel, that way we can send an event
 			// to the consumer and not block the bus, so we can send to other consumers if
 			// others are slow and at full capacity
+			b.mutex.RLock()
 			for _, q := range b.consumers {
 				select {
 				case q <- e:
@@ -52,6 +58,7 @@ func (b *Bus) init() {
 					// Consumer queue was full, drop event, keep going for other consumers
 				}
 			}
+			b.mutex.RUnlock()
 		}
 	}()
 }
@@ -59,6 +66,8 @@ func (b *Bus) init() {
 // Stop removes all of the consumers and producers and stops processing events. After calling
 // this method the Bus is no longer usable and you should create a new one of you need another bus
 func (b *Bus) Stop() {
+	b.stopped = true
+
 	for len(b.consumers) > 0 {
 		// Keyed with the consumer, so get first key each time then break
 		for c := range b.consumers {
@@ -75,14 +84,24 @@ func (b *Bus) Stop() {
 // AddConsumer adds a consumer to the bus, once added the consumer will start to
 // receive events from the bus
 func (b *Bus) AddConsumer(c Consumer) {
+	if b.stopped {
+		return
+	}
+
+	b.mutex.Lock()
 	b.consumers[c] = make(chan Event, b.ConsumerCapacity)
+	b.mutex.Unlock()
+
 	c.StartConsuming(b.consumers[c])
 }
 
 // RemoveConsumer removes a consumer from the bus, once removed consumers will no
 // longer receive events
 func (b *Bus) RemoveConsumer(c Consumer) {
+	b.mutex.RLock()
 	q, ok := b.consumers[c]
+	b.mutex.RUnlock()
+
 	if !ok {
 		return
 	}
@@ -93,7 +112,10 @@ func (b *Bus) RemoveConsumer(c Consumer) {
 
 // AddProducer adds a producer to the bus and registers it
 func (b *Bus) AddProducer(p Producer) {
+	b.mutex.Lock()
 	b.producers = append(b.producers, p)
+	b.mutex.Unlock()
+
 	p.StartProducing(b)
 }
 
@@ -101,7 +123,10 @@ func (b *Bus) AddProducer(p Producer) {
 func (b *Bus) RemoveProducer(p Producer) {
 	for i, prod := range b.producers {
 		if prod == p {
+			b.mutex.Lock()
 			b.producers = append(b.producers[:i], b.producers[i+1:]...)
+			b.mutex.Unlock()
+
 			p.StopProducing()
 			return
 		}
@@ -111,6 +136,10 @@ func (b *Bus) RemoveProducer(p Producer) {
 // Enqueue adds an event to the event bus. It is non blocking, if there is not
 // enough capacity in the bus to add a new event, the method returns an error
 func (b *Bus) Enqueue(e Event) error {
+	if b.stopped {
+		return nil
+	}
+
 	select {
 	case b.events <- e:
 		return nil
