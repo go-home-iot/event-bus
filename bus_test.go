@@ -3,6 +3,7 @@ package evtbus_test
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-home-iot/event-bus"
 	"github.com/stretchr/testify/require"
@@ -35,8 +36,8 @@ func (c *MockConsumer) StartConsuming(ch chan evtbus.Event) {
 	c.StartConsumingCount++
 }
 
-func (c *MockConsumer) ConsumeEvent() {
-	<-c.Channel
+func (c *MockConsumer) ConsumeEvent() evtbus.Event {
+	return <-c.Channel
 }
 
 func (c *MockConsumer) StopConsuming() {
@@ -247,4 +248,99 @@ func TestRemoveConsumer(t *testing.T) {
 	require.Equal(t, 1, c.StopConsumingCount)
 	_, more := <-c.Channel
 	require.False(t, more)
+}
+
+func TestEnqueueFilter(t *testing.T) {
+	b := evtbus.NewBus(10, 10)
+
+	c := &MockConsumer{}
+	b.AddConsumer(c)
+
+	p := &MockProducer{}
+	b.AddProducer(p)
+
+	// Add a filter, first event should be blocked, next one should go through
+	e1 := &MockEvent{Desc: "e1"}
+	e2 := &MockEvent{Desc: "e2"}
+
+	b.AddEnqueueFilter("myfilter", func(e evtbus.Event) bool {
+		evt, ok := e.(*MockEvent)
+		if !ok {
+			return false
+		}
+
+		// Blocking the first event only
+		if evt.Desc == "e1" {
+			return true
+		}
+		return false
+	}, 0)
+
+	// Fire event and wait for it to be processed
+	p.Produce(e1)
+	time.Sleep(time.Millisecond * 500)
+
+	// The consumer should not have received the event
+	require.Equal(t, 0, len(c.Channel))
+
+	// Next event should go through
+	p.Produce(e2)
+	time.Sleep(time.Millisecond * 500)
+
+	require.Equal(t, 1, len(c.Channel))
+
+	// Removing the filter should now let e1 go through
+	b.RemoveEnqueueFilter("myfilter")
+
+	// Fire event and wait for it to be processed
+	p.Produce(e1)
+	time.Sleep(time.Millisecond * 500)
+
+	// The consumer should now have received the event
+	require.Equal(t, 1, len(c.Channel))
+
+}
+
+func TestEnqueueFilterTimeout(t *testing.T) {
+	b := evtbus.NewBus(10, 10)
+
+	c := &MockConsumer{}
+	b.AddConsumer(c)
+
+	p := &MockProducer{}
+	b.AddProducer(p)
+
+	e1 := &MockEvent{Desc: "e1"}
+
+	// The filter should last one second, then expire
+	b.AddEnqueueFilter("myfilter", func(e evtbus.Event) bool {
+		evt, ok := e.(*MockEvent)
+		if !ok {
+			return false
+		}
+
+		// Blocking the first event only
+		if evt.Desc == "e1" {
+			return true
+		}
+		return false
+	}, 1*time.Second)
+
+	// Fire event and wait for it to be processed
+	err := p.Produce(e1)
+	require.Nil(t, err)
+	time.Sleep(time.Millisecond * 500)
+
+	// The consumer should not have received the event
+	require.Equal(t, 0, len(c.Channel))
+
+	// Wait at least one second , then try again, filter should have expired
+	time.Sleep(time.Second * 2)
+
+	// Next event should go through
+	err = p.Produce(e1)
+	require.Nil(t, err)
+	time.Sleep(time.Millisecond * 500)
+
+	require.Equal(t, 1, len(c.Channel))
 }
